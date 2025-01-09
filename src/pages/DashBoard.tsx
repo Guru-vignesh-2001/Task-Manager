@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { BsMoonStars, BsCloudSun, BsSearch } from 'react-icons/bs';
-import { FaCheck, FaEdit, FaTrash, FaPlus, FaPray } from 'react-icons/fa';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { BsMoonStars, BsCloudSun, BsSearch, BsSortUp, BsSortDown } from "react-icons/bs";
+import { FaCheck, FaTrash, FaPlus } from "react-icons/fa";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
+import { db } from "../fire_base/firebaseConfig";
+import { addDoc, collection, getDocs, serverTimestamp } from "firebase/firestore";
 
 export interface User {
   uid: string;
@@ -34,13 +36,21 @@ interface StsTokenManager {
   expirationTime: number;
 }
 
+interface TaskData {
+  title: string,
+  description: string,
+  dueDate: string,
+  priority: string,
+  status: string,
+}
+
 interface Task {
   id: number;
   title: string;
   description: string;
   dueDate: string;
-  status: 'completed' | 'pending';
-  priority: 'high' | 'medium' | 'low';
+  status: "completed" | "pending";
+  priority: "high" | "medium" | "low";
 }
 
 export const DashBoard = () => {
@@ -51,13 +61,14 @@ export const DashBoard = () => {
   const [darkMode, setDarkMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newTask, setNewTask] = useState<Partial<Task>>({
+  const [sort, setSort] = useState<"asc" | "desc">("asc");
+  const [formData, setFormData] = useState<Partial<Task>>({
     title: "",
     description: "",
     dueDate: "",
     priority: "medium",
-    status: "pending"
-  });
+    status: "pending",
+  });  
 
   useEffect(() => {
     const user = localStorage.getItem("userInfo");
@@ -71,84 +82,105 @@ export const DashBoard = () => {
     } else {
       setError("User not authenticated");
     }
-
-    setLoading(false);
-    fetchTasks();
+    fetchFirebaseTasks();
   }, []);
 
-  const fetchTasks = async () => {
+  const fetchFirebaseTasks = async () => {
+    setLoading(true);
     try {
-      const mockTasks: Task[] = [
-        { id: 1, title: "Complete Project Report", description: "Write the final report for the project.", dueDate: "2025-02-10", status: "completed", priority: "high" },
-        { id: 2, title: "Team Meeting", description: "Discuss project milestones and next steps.", dueDate: "2024-12-15", status: "completed", priority: "medium" },
-        { id: 3, title: "Bug Fixing", description: "Resolve bugs in the login module.", dueDate: "2025-01-05", status: "pending", priority: "high" },
-      ];
-      setTasks(mockTasks);
+      const querySnapshot = await getDocs(collection(db, 'tasks'));
+      const tasksData = querySnapshot.docs.map((doc, index) => ({
+        id: index + 1,
+        ...doc.data()
+      })) as Task[];
+      setTasks(tasksData);
     } catch (error) {
       setError("Failed to fetch tasks.");
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleCreateTask = () => {
-    const task = {
-      ...newTask,
-      id: tasks.length + 1,
-      status: "pending"
-    } as Task;
-    
-    setTasks([...tasks, task]);
-    setNewTask({
-      title: "",
-      description: "",
-      dueDate: "",
-      priority: "medium",
-      status: "pending"
-    });
-    setIsModalOpen(false);
-  };
+  const handleCreateTask = async () => {
+    setLoading(true);
+    try {
+      const task = {
+        ...formData,
+        id: tasks.length + 1,
+        status: "pending",
+      } as Task;
 
-  const handleUpdateTask = (taskId: number, updates: Partial<Task>) => {
-    setTasks(tasks.map(task => 
-      task.id === taskId ? { ...task, ...updates } : task
-    ));
+      await addDoc(collection(db, 'tasks'), formData);
+      await fetchFirebaseTasks();
+      
+      setFormData({
+        title: "",
+        description: "",
+        dueDate: "",
+        priority: "medium",
+        status: "pending",
+      });
+      setIsModalOpen(false);
+    } catch (error) {
+      setError("Failed to create task");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDeleteTask = (taskId: number) => {
-    setTasks(tasks.filter(task => task.id !== taskId));
+    setTasks(tasks.filter((task) => task.id !== taskId));
   };
 
   const toggleTaskStatus = (taskId: number) => {
-    setTasks(tasks.map(task =>
-      task.id === taskId
-        ? { ...task, status: task.status === 'completed' ? 'pending' : 'completed' }
-        : task
-    ));
+    setTasks(
+      tasks.map((task) =>
+        task.id === taskId
+          ? { ...task, status: task.status === "completed" ? "pending" : "completed" }
+          : task
+      )
+    );
   };
 
-  const filteredTasks = tasks.filter(task =>
-    task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    task.description.toLowerCase().includes(searchQuery.toLowerCase())
+  const sortedTasks = [...tasks].sort((a, b) => {
+    if (sort === "asc") {
+      return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+    }
+    return new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime();
+  });
+
+  const filteredTasks = sortedTasks.filter(
+    (task) =>
+      task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      task.description.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const getTaskStats = () => {
-    const completed = tasks.filter(t => t.status === 'completed').length;
-    const pending = tasks.filter(t => t.status === 'pending').length;
+    const completed = tasks.filter((t) => t.status === "completed").length;
+    const pending = tasks.filter((t) => t.status === "pending").length;
 
     return [
-      { name: 'Completed', value: completed },
-      { name: 'Pending', value: pending }
+      { name: "Completed", value: completed },
+      { name: "Pending", value: pending },
     ];
   };
 
-  const COLORS = ['#8B5CF6', '#3730A3'];
+  const COLORS = ["#8B5CF6", "#3730A3"];
 
-  if (loading) return <div>Loading...</div>;
+  if (loading) return <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-purple-500"></div>
+    </div>;
   if (error) return <div className="text-red-500">{error}</div>;
   if (!userInfo) return <Navigate to="/" replace />;
 
   return (
     <div className={`${darkMode ? "bg-gray-900 text-white" : "bg-gray-100 text-black"} min-h-screen transition-all`}>
-      <header className="bg-purple-900 shadow-lg mb-8 p-6 flex justify-between items-center">
+      {loading && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-purple-500"></div>
+        </div>
+      )}
+      <header className="bg-purple-900 shadow-lg mb-4 p-4 flex justify-between items-center">
         <h1 className="text-3xl font-bold text-white">Task Manager</h1>
         <div className="flex items-center space-x-4">
           <button
@@ -158,7 +190,7 @@ export const DashBoard = () => {
             {darkMode ? <BsMoonStars size={20} /> : <BsCloudSun size={20} />}
           </button>
           <img
-            src={userInfo.photoURL || '/placeholder.jpg'}
+            src={userInfo.photoURL || "/placeholder.jpg"}
             alt="User Avatar"
             className="w-12 h-12 rounded-full border-2 border-white"
           />
@@ -166,18 +198,28 @@ export const DashBoard = () => {
       </header>
 
       <main className="container mx-auto p-6 space-y-6">
+        <p className="font-semibold text-2xl">Hello {userInfo.displayName}</p>
         <div className="flex justify-between items-center mb-6">
-          <div className="relative w-64">
-            <input
-              type="text"
-              placeholder="Search tasks..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 pr-4 py-2 w-full rounded-lg border border-gray-300 focus:outline-none focus:border-purple-500"
-            />
-            <BsSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+          <div className="flex items-center gap-2">
+            <div className="relative w-64">
+              <input
+                type="text"
+                placeholder="Search tasks..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 pr-4 py-2 w-full rounded-lg border border-gray-300 focus:outline-none focus:border-purple-500"
+              />
+              <BsSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+            </div>
+
+            <button
+              onClick={() => setSort(sort === "asc" ? "desc" : "asc")}
+              className="flex items-center space-x-1 text-gray-500 hover:text-purple-700 transition"
+            >
+              {sort === 'asc' ? <BsSortUp className="w-6 h-6" /> : <BsSortDown className="w-6 h-6" />}
+            </button>
           </div>
-          
+
           <button
             onClick={() => setIsModalOpen(true)}
             className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center"
@@ -186,59 +228,65 @@ export const DashBoard = () => {
           </button>
         </div>
 
-        {/* Modal for creating new task */}
+        {/* Modal */}
         {isModalOpen && (
           <>
-            {/* Backdrop */}
-            <div 
-              className="fixed inset-0 bg-black bg-opacity-50 z-40"
-              onClick={() => setIsModalOpen(false)}
-            />
-            
-            {/* Modal Content */}
-            <div className="fixed inset-0 z-50 overflow-auto">
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={() => setIsModalOpen(false)} />
+            <div className="fixed inset-0 z-50 overflow-auto" onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setIsModalOpen(false);
+              }
+            }}>
               <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
-                <div className={`relative ${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-lg mx-auto max-w-lg w-full p-6 shadow-xl`}>
-                  <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-semibold">Create New Task</h2>
-                    <button 
-                      onClick={() => setIsModalOpen(false)}
-                      className="text-gray-400 hover:text-gray-500"
-                    >
-                      ×
-                    </button>
-                  </div>
-                  
-                  <form onSubmit={handleCreateTask} className="space-y-4">
+                <div className={`relative ${darkMode ? "bg-gray-800" : "bg-white"} rounded-lg mx-auto max-w-lg w-full p-6 shadow-xl`}>
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    handleCreateTask();
+                  }} className="space-y-4">
                     <input
                       placeholder="Task Title"
-                      value={newTask.title}
-                      onChange={(e) => setNewTask({...newTask, title: e.target.value})}
-                      className={`w-full p-2 rounded border ${darkMode && 'bg-gray-700 border-gray-600'} focus:outline-none focus:border-purple-500`}
+                      value={formData.title}
+                      onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+                      className={`w-full p-2 rounded border ${darkMode && "bg-gray-700 border-gray-600"} focus:outline-none focus:border-purple-500`}
                     />
                     <textarea
                       placeholder="Description"
-                      value={newTask.description}
-                      onChange={(e) => setNewTask({...newTask, description: e.target.value})}
-                      className={`w-full p-2 rounded border ${darkMode && 'bg-gray-700 border-gray-600'} focus:outline-none focus:border-purple-500`}
+                      value={formData.description}
+                      onChange={(e) =>
+                        setFormData({ ...formData, description: e.target.value })
+                      }
+                      className={`w-full p-2 rounded border ${
+                        darkMode && "bg-gray-700 border-gray-600"
+                      } focus:outline-none focus:border-purple-500`}
                       rows={3}
                     />
                     <input
                       type="date"
-                      value={newTask.dueDate}
-                      onChange={(e) => setNewTask({...newTask, dueDate: e.target.value})}
-                      className={`w-full p-2 rounded border ${darkMode && 'bg-gray-700 border-gray-600'} focus:outline-none focus:border-purple-500`}
+                      value={formData.dueDate}
+                      onChange={(e) =>
+                        setFormData({ ...formData, dueDate: e.target.value })
+                      }
+                      min={new Date().toISOString().split("T")[0]}
+                      className={`w-full p-2 rounded border ${
+                        darkMode && "bg-gray-700 border-gray-600"
+                      } focus:outline-none focus:border-purple-500`}
                     />
                     <select
-                      value={newTask.priority}
-                      onChange={(e) => setNewTask({...newTask, priority: e.target.value as Task['priority']})}
-                      className={`w-full p-2 rounded border ${darkMode && 'bg-gray-700 border-gray-600'} focus:outline-none focus:border-purple-500`}
+                      value={formData.priority}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          priority: e.target.value as Task["priority"],
+                        })
+                      }
+                      className={`w-full p-2 rounded border ${
+                        darkMode && "bg-gray-700 border-gray-600"
+                      } focus:outline-none focus:border-purple-500`}
                     >
                       <option value="high">High Priority</option>
                       <option value="medium">Medium Priority</option>
                       <option value="low">Low Priority</option>
                     </select>
-                    
                     <div className="flex justify-end space-x-2 pt-4">
                       <button
                         onClick={() => setIsModalOpen(false)}
@@ -261,74 +309,85 @@ export const DashBoard = () => {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Tasks List */}
-          <div className={`${darkMode ?'bg-gray-800' : 'bg-white'} rounded-lg shadow-lg p-6 max-h-[600px] overflow-y-auto`}>
+          {/* Task List */}
+          <div
+            className={`${
+              darkMode ? "bg-gray-800" : "bg-white"
+            } rounded-lg shadow-lg p-6 max-h-[600px] overflow-y-auto`}
+          >
             <h2 className="text-xl font-semibold mb-4">Tasks</h2>
             <div className="space-y-4">
               {filteredTasks.map((task) => (
                 <div
                   key={task.id}
-                  className={`relative p-4 rounded-lg shadow transition-all duration-300 hover:shadow-lg
-                    ${task.status === 'completed' ? 'bg-purple-100 dark:bg-purple-900' : 'bg-white dark:bg-gray-700'}
-                    ${task.priority === 'high' ? 'border-l-4 border-red-500' :
-                      task.priority === 'medium' ? 'border-l-4 border-yellow-500' :
-                      'border-l-4 border-green-500'}`}
+                  className={`p-4 rounded-lg shadow flex justify-between items-center shadow-lg ${
+                    darkMode
+                      ? "bg-gray-800"
+                      : "bg-white"
+                  }`}
                 >
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold">{task.title}</h3>
-                      <p className="text-gray-600 dark:text-gray-300">{task.description}</p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Due: {task.dueDate}</p>
-                    </div>
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={() => toggleTaskStatus(task.id)}
-                        className={`p-2 rounded-full ${task.status === 'completed' ? 'bg-green-500' : 'bg-gray-300'}`}
-                      >
-                        <FaCheck className="text-white" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteTask(task.id)}
-                        className="p-2 rounded-full bg-red-500 text-white"
-                      >
-                        <FaTrash />
-                      </button>
-                    </div>
+                  <div>
+                    <h3 className="font-bold text-lg">{task.title}</h3>
+                    <p>{task.description}</p>
+                    <small className="text-gray-500">
+                      Due Date: {new Date(task.dueDate).toLocaleDateString()}
+                    </small>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => toggleTaskStatus(task.id)}
+                      className={`p-2 rounded ${
+                        task.status === "completed"
+                          ? "bg-green-600 text-white"
+                          : "bg-yellow-600 text-white"
+                      }`}
+                    >
+                      <FaCheck />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteTask(task.id)}
+                      className="p-2 bg-red-600 text-white rounded"
+                    >
+                      <FaTrash />
+                    </button>
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Statistics */}
-          <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-lg shadow-lg p-6 h-[600px] flex flex-col`}>
+          {/* Pie Chart */}
+          <div
+            className={`${
+              darkMode ? "bg-gray-800" : "bg-white"
+            } rounded-lg shadow-lg p-6`}
+          >
             <h2 className="text-xl font-semibold mb-4">Task Statistics</h2>
-            <div className="flex-1">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={getTaskStats()}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {getTaskStats().map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={getTaskStats()}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={100}
+                  label
+                >
+                  {getTaskStats().map((entry, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={COLORS[index % COLORS.length]}
+                    />
+                  ))}
+                </Pie>
+                <Tooltip />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
           </div>
         </div>
       </main>
     </div>
   );
 };
-
-export default DashBoard;
