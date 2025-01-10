@@ -4,7 +4,7 @@ import { BsMoonStars, BsCloudSun, BsSearch, BsSortUp, BsSortDown } from "react-i
 import { FaCheck, FaTrash, FaPlus } from "react-icons/fa";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
 import { db } from "../fire_base/firebaseConfig";
-import { addDoc, collection, getDocs, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, getDocs } from "firebase/firestore";
 
 export interface User {
   uid: string;
@@ -36,14 +36,6 @@ interface StsTokenManager {
   expirationTime: number;
 }
 
-interface TaskData {
-  title: string,
-  description: string,
-  dueDate: string,
-  priority: string,
-  status: string,
-}
-
 interface Task {
   id: number;
   title: string;
@@ -62,13 +54,15 @@ export const DashBoard = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [sort, setSort] = useState<"asc" | "desc">("asc");
+  const [isProfilePopupOpen, setIsProfilePopupOpen] = useState(false);
+
   const [formData, setFormData] = useState<Partial<Task>>({
     title: "",
     description: "",
     dueDate: "",
     priority: "medium",
     status: "pending",
-  });  
+  });
 
   useEffect(() => {
     const user = localStorage.getItem("userInfo");
@@ -165,11 +159,20 @@ export const DashBoard = () => {
     ];
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem("userInfo");
+    setUserInfo(null);
+    setIsProfilePopupOpen(false);
+  };
+
   const COLORS = ["#8B5CF6", "#3730A3"];
 
-  if (loading) return <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+  if (loading) return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-purple-500"></div>
-    </div>;
+    </div>
+  );
+  
   if (error) return <div className="text-red-500">{error}</div>;
   if (!userInfo) return <Navigate to="/" replace />;
 
@@ -180,6 +183,8 @@ export const DashBoard = () => {
           <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-purple-500"></div>
         </div>
       )}
+      
+      {/* Header */}
       <header className="bg-purple-900 shadow-lg mb-4 p-4 flex justify-between items-center">
         <h1 className="text-3xl font-bold text-white">Task Manager</h1>
         <div className="flex items-center space-x-4">
@@ -190,15 +195,18 @@ export const DashBoard = () => {
             {darkMode ? <BsMoonStars size={20} /> : <BsCloudSun size={20} />}
           </button>
           <img
-            src={userInfo.photoURL || "/placeholder.jpg"}
+            src={userInfo.photoURL || "/panda.png"}
             alt="User Avatar"
-            className="w-12 h-12 rounded-full border-2 border-white"
+            className="w-12 h-12 rounded-full border-2 border-white cursor-pointer"
+            onClick={() => setIsProfilePopupOpen(true)}
           />
         </div>
       </header>
 
       <main className="container mx-auto p-6 space-y-6">
-        <p className="font-semibold text-2xl">Hello {userInfo.displayName}</p>
+        <p className="font-semibold text-2xl">{userInfo.displayName ? `Hello, ${userInfo.displayName}! 👋` : `Hello, 👋` }</p>
+        
+        {/* Search and Controls */}
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center gap-2">
             <div className="relative w-64">
@@ -228,84 +236,99 @@ export const DashBoard = () => {
           </button>
         </div>
 
-        {/* Modal */}
-        {isModalOpen && (
+        {/* Profile Popup */}
+        {isProfilePopupOpen && (
           <>
-            <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={() => setIsModalOpen(false)} />
-            <div className="fixed inset-0 z-50 overflow-auto" onClick={(e) => {
-              if (e.target === e.currentTarget) {
-                setIsModalOpen(false);
-              }
-            }}>
-              <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
-                <div className={`relative ${darkMode ? "bg-gray-800" : "bg-white"} rounded-lg mx-auto max-w-lg w-full p-6 shadow-xl`}>
-                  <form onSubmit={(e) => {
-                    e.preventDefault();
-                    handleCreateTask();
-                  }} className="space-y-4">
-                    <input
-                      placeholder="Task Title"
-                      value={formData.title}
-                      onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
-                      className={`w-full p-2 rounded border ${darkMode && "bg-gray-700 border-gray-600"} focus:outline-none focus:border-purple-500`}
-                    />
-                    <textarea
-                      placeholder="Description"
-                      value={formData.description}
-                      onChange={(e) =>
-                        setFormData({ ...formData, description: e.target.value })
-                      }
-                      className={`w-full p-2 rounded border ${
-                        darkMode && "bg-gray-700 border-gray-600"
-                      } focus:outline-none focus:border-purple-500`}
-                      rows={3}
-                    />
-                    <input
-                      type="date"
-                      value={formData.dueDate}
-                      onChange={(e) =>
-                        setFormData({ ...formData, dueDate: e.target.value })
-                      }
-                      min={new Date().toISOString().split("T")[0]}
-                      className={`w-full p-2 rounded border ${
-                        darkMode && "bg-gray-700 border-gray-600"
-                      } focus:outline-none focus:border-purple-500`}
-                    />
-                    <select
-                      value={formData.priority}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          priority: e.target.value as Task["priority"],
-                        })
-                      }
-                      className={`w-full p-2 rounded border ${
-                        darkMode && "bg-gray-700 border-gray-600"
-                      } focus:outline-none focus:border-purple-500`}
-                    >
-                      <option value="high">High Priority</option>
-                      <option value="medium">Medium Priority</option>
-                      <option value="low">Low Priority</option>
-                    </select>
-                    <div className="flex justify-end space-x-2 pt-4">
-                      <button
-                        onClick={() => setIsModalOpen(false)}
-                        className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="submit"
-                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
-                      >
-                        Create Task
-                      </button>
-                    </div>
-                  </form>
+            <div 
+              className="fixed inset-0 z-40" 
+              onClick={() => setIsProfilePopupOpen(false)} 
+            />
+            <div className="fixed right-0 top-20 z-50 bg-white shadow-lg rounded-lg w-72 p-6">
+              <div className="flex flex-col items-center">
+                <img
+                  src={userInfo.photoURL || "/panda.png"}
+                  alt="User Avatar"
+                  className="w-24 h-24 rounded-full border-2 border-gray-300 mb-4"
+                />
+                <p className="font-semibold text-xl">{userInfo.displayName}</p>
+                <p className="text-gray-600">{userInfo.email}</p>
+                <div className="mt-6">
+                  <button
+                    onClick={handleLogout}
+                    className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                  >
+                    Logout
+                  </button>
                 </div>
               </div>
             </div>
           </>
+        )}
+
+        {/* Create Task Modal */}
+        {isModalOpen && (
+          <div className="fixed inset-0 flex items-center justify-center z-50">
+            <div 
+              className="fixed inset-0 bg-black bg-opacity-50" 
+              onClick={() => setIsModalOpen(false)}
+            />
+            <div className="relative z-50 w-full max-w-lg mx-4">
+              <div className={`${darkMode ? "bg-gray-800" : "bg-white"} rounded-lg p-6 shadow-xl`}>
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  handleCreateTask();
+                }} className="space-y-4">
+                  <input
+                    placeholder="Task Title"
+                    value={formData.title}
+                    onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+                    className={`w-full p-2 rounded border ${darkMode && "bg-gray-700 border-gray-600"} focus:outline-none focus:border-purple-500`}
+                  />
+                  <textarea
+                    placeholder="Description"
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    className={`w-full p-2 rounded border ${darkMode && "bg-gray-700 border-gray-600"} focus:outline-none focus:border-purple-500`}
+                    rows={3}
+                  />
+                  <input
+                    type="date"
+                    value={formData.dueDate}
+                    onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
+                    min={new Date().toISOString().split("T")[0]}
+                    className={`w-full p-2 rounded border ${darkMode && "bg-gray-700 border-gray-600"} focus:outline-none focus:border-purple-500`}
+                  />
+                  <select
+                    value={formData.priority}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      priority: e.target.value as Task["priority"],
+                    })}
+                    className={`w-full p-2 rounded border ${darkMode && "bg-gray-700 border-gray-600"} focus:outline-none focus:border-purple-500`}
+                  >
+                    <option value="high">High Priority</option>
+                    <option value="medium">Medium Priority</option>
+                    <option value="low">Low Priority</option>
+                  </select>
+                  <div className="flex justify-end space-x-2 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => setIsModalOpen(false)}
+                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                    >
+                      Create Task
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -320,7 +343,7 @@ export const DashBoard = () => {
               {filteredTasks.map((task) => (
                 <div
                   key={task.id}
-                  className={`p-4 rounded-lg shadow flex justify-between items-center shadow-lg ${
+                  className={`p-4 rounded-lg flex justify-between items-center shadow-lg ${
                     darkMode
                       ? "bg-gray-800"
                       : "bg-white"
