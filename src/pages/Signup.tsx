@@ -5,21 +5,13 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   UserCredential,
-  User,
-  AuthError,
   fetchSignInMethodsForEmail
 } from 'firebase/auth';
-import { Navigate } from 'react-router-dom';
 import { MdEmail, MdLock } from 'react-icons/md';
 import { FcGoogle } from 'react-icons/fc';
 
-interface SignUpProps {
-  onSignUp?: (user: User) => void;
-}
-
-const SignUp: React.FC<SignUpProps> = ({ onSignUp }) => {
+const SignUp = () => {
   const [loading, setLoading] = useState<boolean>(false);
-  const [user, setUser] = useState<User | null>(null);
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [error, setError] = useState<string>('');
@@ -28,7 +20,7 @@ const SignUp: React.FC<SignUpProps> = ({ onSignUp }) => {
   useEffect(() => {
     const storedUser = localStorage.getItem('userInfo');
     if (storedUser) {
-      setUser(JSON.parse(storedUser));
+      window.location.href=('/dashboard')
     }
   }, []);
 
@@ -37,8 +29,7 @@ const SignUp: React.FC<SignUpProps> = ({ onSignUp }) => {
       const result = await signInWithEmailAndPassword(auth, email, password);
       if (result.user.uid) {
         localStorage.setItem('userInfo', JSON.stringify(result.user));
-        setUser(result.user);
-        onSignUp?.(result.user);
+        window.location.href=('/dashboard')
       }
     } catch (error: any) {
       setError('Invalid password. Please try again.');
@@ -53,8 +44,7 @@ const SignUp: React.FC<SignUpProps> = ({ onSignUp }) => {
       const result: UserCredential = await signInWithPopup(auth, provider);
       if (result.user.uid) {
         localStorage.setItem('userInfo', JSON.stringify(result.user));
-        setUser(result.user);
-        onSignUp?.(result.user);
+        window.location.href=('/dashboard')
       }
     } catch (error) {
       console.error('Error signing in with Google: ', error);
@@ -82,8 +72,7 @@ const SignUp: React.FC<SignUpProps> = ({ onSignUp }) => {
       const result: UserCredential = await createUserWithEmailAndPassword(auth, email, password);
       if (result.user.uid) {
         localStorage.setItem('userInfo', JSON.stringify(result.user));
-        setUser(result.user);
-        onSignUp?.(result.user);
+        window.location.href=('/dashboard')
       }
     } catch (error: any) {
       console.error('Error in authentication: ', error);
@@ -110,10 +99,6 @@ const SignUp: React.FC<SignUpProps> = ({ onSignUp }) => {
       setLoading(false);
     }
   };
-
-  if (user) {
-    return <Navigate to="/dashboard" />;
-  }
 
   return (
     <div className="flex justify-center items-center min-h-screen bg-gray-900">
@@ -164,7 +149,7 @@ const SignUp: React.FC<SignUpProps> = ({ onSignUp }) => {
           >
             {loading ? (
               <div className="flex justify-center items-center">
-                <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-purple-500"></div>
+                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-white"></div>
               </div>
             ) : (
               'Continue with Email'
@@ -190,7 +175,7 @@ const SignUp: React.FC<SignUpProps> = ({ onSignUp }) => {
           >
             {isGoogleLoading ? (
               <div className="flex justify-center items-center">
-                <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-purple-500"></div>
+                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-white"></div>
               </div>
             ) : (
               <>

@@ -6,6 +6,53 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recha
 import { db } from "../fire_base/firebaseConfig";
 import { addDoc, collection, getDocs } from "firebase/firestore";
 
+const dummyDataTask: Task[] = [
+  {
+    id: 1,
+    title: "Finish React project",
+    description: "Complete the tasks management app with drag and drop functionality.",
+    dueDate: "2025-01-20",
+    status: "pending",
+    priority: "high",
+  },
+  {
+    id: 2,
+    title: "Update resume",
+    description: "Revise and update the resume with recent job experience.",
+    dueDate: "2025-01-15",
+    status: "pending",
+    priority: "medium",
+  },
+  {
+    id: 3,
+    title: "Learn Django REST API",
+    description: "Go through tutorials and create a simple Django REST API.",
+    dueDate: "2025-01-25",
+    status: "pending",
+    priority: "medium",
+  },
+];
+
+const dummyDataCompletedTask: Task[] = [
+  {
+    id: 4,
+    title: "Complete Java certification",
+    description: "Finish the Java backend development course.",
+    dueDate: "2024-12-01",
+    status: "completed",
+    priority: "high",
+  },
+  {
+    id: 5,
+    title: "Build personal website",
+    description: "Create a portfolio website with React and TypeScript.",
+    dueDate: "2024-12-10",
+    status: "completed",
+    priority: "low",
+  },
+];
+
+
 export interface User {
   uid: string;
   email: string;
@@ -49,13 +96,14 @@ export const DashBoard = () => {
   const [userInfo, setUserInfo] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [completedTask, setCompletedTask] = useState<Task[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [darkMode, setDarkMode] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [search, setSearch] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [sort, setSort] = useState<"asc" | "desc">("asc");
   const [isProfilePopupOpen, setIsProfilePopupOpen] = useState(false);
-
+  
   const [formData, setFormData] = useState<Partial<Task>>({
     title: "",
     description: "",
@@ -67,14 +115,10 @@ export const DashBoard = () => {
   useEffect(() => {
     const user = localStorage.getItem("userInfo");
     if (user) {
-      try {
-        const userData: User = JSON.parse(user);
-        setUserInfo(userData);
-      } catch (error) {
-        setError("Error loading user information");
-      }
+      const userData: User = JSON.parse(user);
+      setUserInfo(userData);
     } else {
-      setError("User not authenticated");
+      window.location.href=('/')
     }
     fetchFirebaseTasks();
   }, []);
@@ -87,11 +131,16 @@ export const DashBoard = () => {
         id: index + 1,
         ...doc.data()
       })) as Task[];
-      setTasks(tasksData);
-    } catch (error) {
-      setError("Failed to fetch tasks.");
-    } finally {
+
+      const todoTasks = tasksData.filter((task) => task.status !== 'completed');
+      const completedTasks = tasksData.filter((task) => task.status === 'completed');
+
+      setTasks(todoTasks);
+      setCompletedTask(completedTasks)
       setLoading(false);
+    } catch (error) {
+      setLoading(false);
+      setError("Failed to fetch tasks.");
     }
   };
 
@@ -145,8 +194,8 @@ export const DashBoard = () => {
 
   const filteredTasks = sortedTasks.filter(
     (task) =>
-      task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      task.description.toLowerCase().includes(searchQuery.toLowerCase())
+      task.title.toLowerCase().includes(search.toLowerCase()) ||
+      task.description.toLowerCase().includes(search.toLowerCase())
   );
 
   const getTaskStats = () => {
@@ -160,30 +209,23 @@ export const DashBoard = () => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("userInfo");
-    setUserInfo(null);
-    setIsProfilePopupOpen(false);
+    localStorage.clear();
+    window.location.href=('/')
   };
 
   const COLORS = ["#8B5CF6", "#3730A3"];
 
   if (loading) return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-purple-500"></div>
+      <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-purple-500"></div>
     </div>
   );
   
-  if (error) return <div className="text-red-500">{error}</div>;
+  if (error) return <div className="text-red-500">{error}</div>;  
   if (!userInfo) return <Navigate to="/" replace />;
 
   return (
-    <div className={`${darkMode ? "bg-gray-900 text-white" : "bg-gray-100 text-black"} min-h-screen transition-all`}>
-      {loading && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-purple-500"></div>
-        </div>
-      )}
-      
+    <div className={`${darkMode ? "bg-gray-900 text-white" : "bg-gray-100 text-black"} min-h-screen transition-all`}>      
       {/* Header */}
       <header className="bg-purple-900 shadow-lg mb-4 p-4 flex justify-between items-center">
         <h1 className="text-3xl font-bold text-white">Task Manager</h1>
@@ -203,18 +245,19 @@ export const DashBoard = () => {
         </div>
       </header>
 
-      <main className="container mx-auto p-6 space-y-6">
-        <p className="font-semibold text-2xl">{userInfo.displayName ? `Hello, ${userInfo.displayName}! 👋` : `Hello, 👋` }</p>
-        
+      <main className="container mx-auto p-6 space-y-6">        
         {/* Search and Controls */}
         <div className="flex justify-between items-center mb-6">
+
+          <p className="font-semibold text-2xl">{userInfo.displayName ? `Hello, ${userInfo.displayName}! 👋` : `Hello, 👋` }</p>
+
           <div className="flex items-center gap-2">
             <div className="relative w-64">
               <input
                 type="text"
                 placeholder="Search tasks..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
                 className="pl-10 pr-4 py-2 w-full rounded-lg border border-gray-300 focus:outline-none focus:border-purple-500"
               />
               <BsSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
@@ -226,14 +269,16 @@ export const DashBoard = () => {
             >
               {sort === 'asc' ? <BsSortUp className="w-6 h-6" /> : <BsSortDown className="w-6 h-6" />}
             </button>
-          </div>
+          
 
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center"
-          >
-            <FaPlus className="mr-2" /> New Task
-          </button>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center"
+            >
+              <FaPlus className="mr-2" /> New Task
+            </button>
+          
+          </div>
         </div>
 
         {/* Profile Popup */}
@@ -338,9 +383,87 @@ export const DashBoard = () => {
               darkMode ? "bg-gray-800" : "bg-white"
             } rounded-lg shadow-lg p-6 max-h-[600px] overflow-y-auto`}
           >
-            <h2 className="text-xl font-semibold mb-4">Tasks</h2>
+            <h2 className="text-xl font-semibold mb-4">To Do</h2>
             <div className="space-y-4">
               {filteredTasks.map((task) => (
+                <div
+                  key={task.id}
+                  className={`p-4 rounded-lg flex justify-between items-center shadow-lg ${
+                    darkMode
+                      ? "bg-gray-800"
+                      : "bg-white"
+                  } hover:scale-105`}
+                >
+                  <div>
+                    <h3 className="font-bold text-lg">{task.title}</h3>
+                    <p>{task.description}</p>
+                    <small className="text-gray-500">
+                      Due Date: {new Date(task.dueDate).toLocaleDateString()}
+                    </small>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => toggleTaskStatus(task.id)}
+                      className={`p-2 rounded ${
+                        task.status === "completed"
+                          ? "bg-green-600 text-white"
+                          : "bg-yellow-600 text-white"
+                      }`}
+                    >
+                      <FaCheck />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteTask(task.id)}
+                      className="p-2 bg-red-600 text-white rounded"
+                    >
+                      <FaTrash />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Pie Chart */}
+          <div
+            className={` relative ${
+              darkMode ? "bg-gray-800" : "bg-white"
+            } rounded-lg shadow-lg p-6 flex justify-center items-center`}
+          >
+            <h2 className=" absolute top-6 left-6 text-xl font-semibold mb-4">Task Statistics</h2>
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={getTaskStats()}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={100}
+                  label
+                >
+                  {getTaskStats().map((entry, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={COLORS[index % COLORS.length]}
+                    />
+                  ))}
+                </Pie>
+                <Tooltip />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div
+            className={`w-full ${
+              darkMode ? "bg-gray-800" : "bg-white"
+            } rounded-lg shadow-lg p-6 max-h-[600px]`}
+          >
+            <h2 className="text-xl font-semibold mb-4">Completed</h2>
+            <div className={`w-full ${darkMode ? 'bg-gray-800' : 'bg-white' } rounded-lg overflow-y-auto`}>
+              {completedTask.map((task) => (
                 <div
                   key={task.id}
                   className={`p-4 rounded-lg flex justify-between items-center shadow-lg ${
@@ -377,38 +500,6 @@ export const DashBoard = () => {
                 </div>
               ))}
             </div>
-          </div>
-
-          {/* Pie Chart */}
-          <div
-            className={`${
-              darkMode ? "bg-gray-800" : "bg-white"
-            } rounded-lg shadow-lg p-6`}
-          >
-            <h2 className="text-xl font-semibold mb-4">Task Statistics</h2>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={getTaskStats()}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={100}
-                  label
-                >
-                  {getTaskStats().map((entry, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={COLORS[index % COLORS.length]}
-                    />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
         </div>
       </main>
     </div>
