@@ -4,7 +4,7 @@ import { BsMoonStars, BsCloudSun, BsSearch, BsSortUp, BsSortDown } from "react-i
 import { FaCheck, FaTrash, FaPlus } from "react-icons/fa";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
 import { db } from "../fire_base/firebaseConfig";
-import { addDoc, collection, getDocs } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDocs, updateDoc } from "firebase/firestore";
 
 const dummyDataTask: Task[] = [
   {
@@ -52,7 +52,6 @@ const dummyDataCompletedTask: Task[] = [
   },
 ];
 
-
 export interface User {
   uid: string;
   email: string;
@@ -95,7 +94,7 @@ interface Task {
 export const DashBoard = () => {
   const [userInfo, setUserInfo] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]); 
   const [completedTask, setCompletedTask] = useState<Task[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [darkMode, setDarkMode] = useState(false);
@@ -103,6 +102,9 @@ export const DashBoard = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [sort, setSort] = useState<"asc" | "desc">("asc");
   const [isProfilePopupOpen, setIsProfilePopupOpen] = useState(false);
+  const [taskDocIds, setTaskDocIds] = useState<{ [key: number]: string }>({});
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  console.log(selectedTask);
   
   const [formData, setFormData] = useState<Partial<Task>>({
     title: "",
@@ -127,16 +129,23 @@ export const DashBoard = () => {
     setLoading(true);
     try {
       const querySnapshot = await getDocs(collection(db, 'tasks'));
-      const tasksData = querySnapshot.docs.map((doc, index) => ({
-        id: index + 1,
-        ...doc.data()
-      })) as Task[];
+      const taskDocs: { [key: number]: string } = {};
+      
+      const tasksData = querySnapshot.docs.map((doc, index) => {
+        const taskId = index + 1;
+        taskDocs[taskId] = doc.id;
+        return {
+          id: taskId,
+          ...doc.data()
+        };
+      }) as Task[];
 
+      setTaskDocIds(taskDocs);
       const todoTasks = tasksData.filter((task) => task.status !== 'completed');
       const completedTasks = tasksData.filter((task) => task.status === 'completed');
 
       setTasks(todoTasks);
-      setCompletedTask(completedTasks)
+      setCompletedTask(completedTasks);
       setLoading(false);
     } catch (error) {
       setLoading(false);
@@ -149,11 +158,11 @@ export const DashBoard = () => {
     try {
       const task = {
         ...formData,
-        id: tasks.length + 1,
+        id: tasks.length + completedTask.length + 1,
         status: "pending",
       } as Task;
 
-      await addDoc(collection(db, 'tasks'), formData);
+      await addDoc(collection(db, 'tasks'), task);
       await fetchFirebaseTasks();
       
       setFormData({
@@ -171,18 +180,49 @@ export const DashBoard = () => {
     }
   };
 
-  const handleDeleteTask = (taskId: number) => {
-    setTasks(tasks.filter((task) => task.id !== taskId));
+  const handleDeleteTask = async (taskId: number) => {
+    setLoading(true);
+    try {
+      const docId = taskDocIds[taskId];
+      if (!docId) {
+        throw new Error("Task document ID not found");
+      }
+
+      await deleteDoc(doc(db, 'tasks', docId));
+      await fetchFirebaseTasks();
+    } catch (error) {
+      setError("Failed to delete task");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const toggleTaskStatus = (taskId: number) => {
-    setTasks(
-      tasks.map((task) =>
-        task.id === taskId
-          ? { ...task, status: task.status === "completed" ? "pending" : "completed" }
-          : task
-      )
-    );
+  const toggleTaskStatus = async (taskId: number) => {
+    setLoading(true);
+    try {
+      const docId = taskDocIds[taskId];
+      if (!docId) {
+        throw new Error("Task document ID not found");
+      }
+
+      const task = [...tasks, ...completedTask].find(t => t.id === taskId);
+      if (!task) {
+        throw new Error("Task not found");
+      }
+
+      const newStatus = task.status === "completed" ? "pending" : "completed";
+      
+      await updateDoc(doc(db, 'tasks', docId), {
+        status: newStatus
+      });      
+
+      setSelectedTask(null)
+      await fetchFirebaseTasks();
+    } catch (error) {
+      setError("Failed to update task status");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const sortedTasks = [...tasks].sort((a, b) => {
@@ -199,8 +239,8 @@ export const DashBoard = () => {
   );
 
   const getTaskStats = () => {
-    const completed = tasks.filter((t) => t.status === "completed").length;
-    const pending = tasks.filter((t) => t.status === "pending").length;
+    const completed = completedTask.length;
+    const pending = tasks.length;
 
     return [
       { name: "Completed", value: completed },
@@ -213,6 +253,49 @@ export const DashBoard = () => {
     window.location.href=('/')
   };
 
+  const handlePriorityChange = async (taskId: number, newPriority: Task["priority"]) => {
+    setLoading(true);
+    try {
+      const docId = taskDocIds[taskId];
+      if (!docId) {
+        throw new Error("Task document ID not found");
+      }
+
+      await updateDoc(doc(db, 'tasks', docId), {
+        priority: newPriority
+      });
+
+      await fetchFirebaseTasks();
+    } catch (error) {
+      setError("Failed to update task priority");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const calculateTimeRemaining = (dueDate: string | undefined) => {
+    if (!dueDate) return "No Due Date"; // Handle the case where dueDate is undefined or missing
+    
+    const currentDate = new Date();
+    const dueDateObj = new Date(dueDate);
+  
+    // Check if the dueDate is a valid date
+    if (isNaN(dueDateObj.getTime())) return "Invalid Due Date";
+  
+    dueDateObj.setHours(23, 59, 59, 999); // Set the due date to the end of the day
+  
+    const timeDiff = dueDateObj.getTime() - currentDate.getTime();
+    
+    if (timeDiff < 0) return "Expired"; // If the due date has passed, return "Expired"
+    
+    const daysLeft = Math.floor(timeDiff / (1000 * 3600 * 24)); // Calculate the number of days remaining
+    const hoursLeft = Math.floor((timeDiff % (1000 * 3600 * 24)) / (1000 * 3600)); // Calculate the hours remaining
+    const minutesLeft = Math.floor((timeDiff % (1000 * 3600)) / (1000 * 60)); // Calculate the minutes remaining
+  
+    // Format the remaining time string
+    return `${daysLeft}d ${hoursLeft}h ${minutesLeft}m`;
+  };  
+
   const COLORS = ["#8B5CF6", "#3730A3"];
 
   if (loading) return (
@@ -223,6 +306,13 @@ export const DashBoard = () => {
   
   if (error) return <div className="text-red-500">{error}</div>;  
   if (!userInfo) return <Navigate to="/" replace />;
+  const selectedTaskRemainingDate = calculateTimeRemaining(selectedTask?.dueDate)
+
+  const getPriority = (priority: string) => {
+    if(priority === 'high') return 'border-red-500'
+    if(priority === 'medium') return 'border-yellow-500'
+    if(priority === 'low') return 'border-green-500'
+  }
 
   return (
     <div className={`${darkMode ? "bg-gray-900 text-white" : "bg-gray-100 text-black"} min-h-screen transition-all`}>      
@@ -376,102 +466,186 @@ export const DashBoard = () => {
           </div>
         )}
 
+        {/* select the task */}
+        {selectedTask && <div className="fixed inset-0 flex items-center justify-center z-50">
+            <div 
+              className="fixed inset-0 bg-black bg-opacity-50" 
+              onClick={() => setSelectedTask(null)}
+            />
+            <div className="relative z-50 w-full max-w-lg mx-4">
+              <div className={`${darkMode ? "bg-gray-800" : "bg-white"} rounded-lg p-6 shadow-xl space-y-4`}>
+                <div className="flex justify-between items-start">
+                  <h2 className="text-2xl font-semibold text-gray-600">{selectedTask.title}</h2>
+                  <button
+                    onClick={() => setSelectedTask(null)}
+                    className="text-gray-500 hover:text-gray-700"
+                  >
+                    ✕
+                  </button>
+                </div>
+                
+                <p className="text-center">{selectedTask.description}</p>
+                <div className="flex justify-between">
+                  <div className="flex items-center space-x-2">
+                    <span className="font-thin">Due Date:</span>
+                    <span>{new Date(selectedTask.dueDate).toLocaleDateString()}</span>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <span className="font-thin">Priority:</span>
+                    <select
+                      value={selectedTask.priority}
+                      onChange={(e) => handlePriorityChange(selectedTask.id, e.target.value as Task["priority"])}
+                      className={`p-2 rounded border ${
+                        darkMode ? "bg-gray-700 border-gray-600" : "border-gray-300"
+                      } focus:outline-none focus:border-purple-500`}
+                    >
+                      <option value="high">High Priority</option>
+                      <option value="medium">Medium Priority</option>
+                      <option value="low">Low Priority</option>
+                    </select>
+                  </div>
+                </div>
+
+                {selectedTask.status === 'pending' && <p className="text-center py-2 text-xl font-semibold">{selectedTaskRemainingDate}</p>}
+
+                <div className="flex justify-center space-x-3">
+                  <button
+                    onClick={() => toggleTaskStatus(selectedTask.id)}
+                    className={`px-4 py-2 rounded-lg flex items-center ${
+                      selectedTask.status === "completed"
+                        ? "bg-yellow-600 hover:bg-yellow-700"
+                        : "bg-green-600 hover:bg-green-700"
+                    } text-white`}
+                  >
+                    <FaCheck className="mr-2" />
+                    {selectedTask.status === "completed" ? "Mark as Todo" : "Mark as Complete"}
+                  </button>
+                  
+                  <button
+                    onClick={() => {
+                      handleDeleteTask(selectedTask.id);
+                      setSelectedTask(null);
+                    }}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg flex items-center"
+                  >
+                    <FaTrash className="mr-2" />
+                    Delete Task
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        }
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Task List */}
           <div
             className={`${
               darkMode ? "bg-gray-800" : "bg-white"
-            } rounded-lg shadow-lg p-6 max-h-[600px] overflow-y-auto`}
+            } rounded-lg shadow-lg p-6 max-h-[600px]`}
           >
             <h2 className="text-xl font-semibold mb-4">To Do</h2>
-            <div className="space-y-4">
-              {filteredTasks.map((task) => (
-                <div
-                  key={task.id}
-                  className={`p-4 rounded-lg flex justify-between items-center shadow-lg ${
-                    darkMode
-                      ? "bg-gray-800"
-                      : "bg-white"
-                  } hover:scale-105`}
-                >
-                  <div>
-                    <h3 className="font-bold text-lg">{task.title}</h3>
-                    <p>{task.description}</p>
-                    <small className="text-gray-500">
-                      Due Date: {new Date(task.dueDate).toLocaleDateString()}
-                    </small>
+            <div className="max-h-[480px] overflow-y-auto">
+            <div className="flex flex-col items-center justify-center w-full min-h-[200px]">
+            {tasks.length > 0 ? (
+              filteredTasks.map((task) => {
+                // Get the remaining time using the function
+                const timeRemaining = calculateTimeRemaining(task.dueDate);
+
+                return (
+                  <div
+                    key={task.id}
+                    className={`w-[95%] max-w-[600px] p-4 rounded-lg flex justify-between items-center shadow-lg transition-transform ${
+                      darkMode ? "bg-gray-800" : "bg-white"
+                    } 
+                    border-l-2 ${getPriority(task.priority)} 
+                    hover:scale-105 mb-4`}
+                    onClick={() => setSelectedTask(task)}
+                  >
+                    <div className="flex-1">
+                      <h3 className="font-bold text-lg">{task.title}</h3>
+                      <p>{task.description}</p>
+                      <small className="text-gray-500">
+                        Due Date: {new Date(task.dueDate).toLocaleDateString()}
+                      </small>
+                    </div>
+                    <div className="absolute top-2 right-4 text-sm text-gray-500">
+                      {timeRemaining}
+                    </div>
                   </div>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => toggleTaskStatus(task.id)}
-                      className={`p-2 rounded ${
-                        task.status === "completed"
-                          ? "bg-green-600 text-white"
-                          : "bg-yellow-600 text-white"
-                      }`}
-                    >
-                      <FaCheck />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteTask(task.id)}
-                      className="p-2 bg-red-600 text-white rounded"
-                    >
-                      <FaTrash />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })
+            ) : (
+              <div className="flex justify-center items-center w-full h-[200px]">
+                <p className="text-center text-gray-500">No tasks added yet</p>
+              </div>
+            )}
+            </div>
+
             </div>
           </div>
 
+
           {/* Pie Chart */}
           <div
-            className={` relative ${
+            className={`relative ${
               darkMode ? "bg-gray-800" : "bg-white"
             } rounded-lg shadow-lg p-6 flex justify-center items-center`}
           >
-            <h2 className=" absolute top-6 left-6 text-xl font-semibold mb-4">Task Statistics</h2>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={getTaskStats()}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={100}
-                  label
-                >
-                  {getTaskStats().map((entry, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={COLORS[index % COLORS.length]}
-                    />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
+            <h2 className="absolute top-6 left-6 text-xl font-semibold mb-4">
+              Task Statistics
+            </h2>
+
+            {getTaskStats().length === 0 ? (
+              <div className="text-center text-gray-500">
+                <p>No tasks available. Add tasks to see statistics.</p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={getTaskStats()}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"  
+                    outerRadius={100}
+                    label
+                  >
+                    {getTaskStats().map((entry, index) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={COLORS[index % COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
         <div
             className={`w-full ${
               darkMode ? "bg-gray-800" : "bg-white"
-            } rounded-lg shadow-lg p-6 max-h-[600px]`}
+            } rounded-lg shadow-lg p-6`}
           >
             <h2 className="text-xl font-semibold mb-4">Completed</h2>
-            <div className={`w-full ${darkMode ? 'bg-gray-800' : 'bg-white' } rounded-lg overflow-y-auto`}>
-              {completedTask.map((task) => (
+            <div className={`w-full max-h-[600px] ${darkMode ? 'bg-gray-800' : 'bg-white' } rounded-lg overflow-y-auto`}>
+              
+            {completedTask && completedTask.length > 0 ? (
+              completedTask.map((task) => (
                 <div
                   key={task.id}
+                  onClick={() => setSelectedTask(task)}
                   className={`p-4 rounded-lg flex justify-between items-center shadow-lg ${
-                    darkMode
-                      ? "bg-gray-800"
-                      : "bg-white"
+                    darkMode ? "bg-gray-800 text-white" : "bg-white text-gray-800"
                   }`}
                 >
+                  {/* Task Details */}
                   <div>
                     <h3 className="font-bold text-lg">{task.title}</h3>
                     <p>{task.description}</p>
@@ -479,7 +653,10 @@ export const DashBoard = () => {
                       Due Date: {new Date(task.dueDate).toLocaleDateString()}
                     </small>
                   </div>
+
+                  {/* Action Buttons */}
                   <div className="flex space-x-2">
+                    {/* Toggle Status Button */}
                     <button
                       onClick={() => toggleTaskStatus(task.id)}
                       className={`p-2 rounded ${
@@ -487,19 +664,26 @@ export const DashBoard = () => {
                           ? "bg-green-600 text-white"
                           : "bg-yellow-600 text-white"
                       }`}
+                      aria-label="Toggle Task Status"
                     >
                       <FaCheck />
                     </button>
+
+                    {/* Delete Button */}
                     <button
                       onClick={() => handleDeleteTask(task.id)}
                       className="p-2 bg-red-600 text-white rounded"
+                      aria-label="Delete Task"
                     >
                       <FaTrash />
                     </button>
                   </div>
                 </div>
-              ))}
-            </div>
+              ))
+            ) : (
+              <p className="text-center text-gray-500">Yet to Complete the Task</p>
+            )}
+          </div>
         </div>
       </main>
     </div>
